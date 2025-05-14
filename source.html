@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Underwater Wonderland</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.8.0/lib/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        #canvas-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 20px;
+            max-width: 80%;
+        }
+    </style>
+
+<base target="_self">
+
+
+    <div id="canvas-container"></div>
+    <div id="instructions">
+        Click to guide the fish | Arrows: currents/food | Down: predator | Space: color burst
+    </div>
+
+    <script>
+        const underwaterWorld = (p) => {
+            // Fish school parameters
+            let fish = [];
+            let leaderFish;
+            let bubbles = [];
+            let corals = [];
+            let treasures = [];
+            let foodParticles = [];
+            let predators = [];
+            
+            // Environment parameters
+            let waterColor;
+            let currentForce = p.createVector(0, 0);
+            let predatorActive = false;
+            let colorBurstActive = false;
+            let colorBurstTimer = 0;
+            let exoticFishUnlocked = 0;
+            
+            p.setup = () => {
+                let canvas = p.createCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                canvas.parent('canvas-container');
+                p.colorMode(p.HSB, 360, 100, 100, 1);
+                
+                // Initialize water gradient
+                waterColor = p.createGraphics(p.width, p.height);
+                drawWaterGradient();
+                
+                // Create leader fish
+                leaderFish = {
+                    pos: p.createVector(p.width/2, p.height/2),
+                    vel: p.createVector(0, 0),
+                    size: 20,
+                    color: p.color(30, 80, 90),
+                    target: p.createVector(p.width/2, p.height/2),
+                    tailWiggle: 0
+                };
+                
+                // Create initial fish school
+                for (let i = 0; i < 30; i++) {
+                    fish.push(createFish(p.random(p.width), p.random(p.height)));
+                }
+                
+                // Create corals
+                for (let i = 0; i < 15; i++) {
+                    corals.push(createCoral(p.random(p.width), p.random(p.height)));
+                }
+                
+                // Create initial treasure chests
+                for (let i = 0; i < 3; i++) {
+                    treasures.push(createTreasure(p.random(p.width), p.random(p.height)));
+                }
+            };
+            
+            function drawWaterGradient() {
+                for (let y = 0; y < waterColor.height; y++) {
+                    let inter = p.map(y, 0, waterColor.height, 0, 1);
+                    let c = p.lerpColor(p.color(180, 70, 30), p.color(220, 90, 10), inter);
+                    waterColor.stroke(c);
+                    waterColor.line(0, y, waterColor.width, y);
+                }
+            }
+            
+            function createFish(x, y) {
+                let hue = p.random(30, 60);
+                let isExotic = p.random() < exoticFishUnlocked * 0.01;
+                if (isExotic) hue = p.random(120, 300);
+                
+                return {
+                    pos: p.createVector(x, y),
+                    vel: p.createVector(p.random(-1, 1), p.random(-1, 1)),
+                    size: p.random(10, 15),
+                    color: p.color(hue, p.random(70, 90), p.random(70, 90)),
+                    originalColor: p.color(hue, p.random(70, 90), p.random(70, 90)),
+                    tailWiggle: p.random(p.TWO_PI),
+                    wiggleSpeed: p.random(0.1, 0.3),
+                    fear: 0,
+                    exotic: isExotic
+                };
+            }
+            
+            function createCoral(x, y) {
+                return {
+                    pos: p.createVector(x, y),
+                    size: p.random(30, 80),
+                    color: p.color(p.random(350, 10), p.random(60, 90), p.random(50, 70)),
+                    branches: p.floor(p.random(3, 8))
+                };
+            }
+            
+            function createTreasure(x, y) {
+                return {
+                    pos: p.createVector(x, y),
+                    size: 25,
+                    opened: false,
+                    timer: 0,
+                    shineAngle: p.random(p.TWO_PI)
+                };
+            }
+            
+            function createBubble(x, y, size) {
+                return {
+                    pos: p.createVector(x, y),
+                    vel: p.createVector(p.random(-0.2, 0.2), p.random(-3, -1)),
+                    size: size || p.random(5, 15),
+                    life: p.random(100, 200),
+                    opacity: p.random(0.3, 0.7)
+                };
+            }
+            
+            function createFood(x, y) {
+                return {
+                    pos: p.createVector(x, y),
+                    size: 5,
+                    life: 100
+                };
+            }
+            
+            function createPredator() {
+                return {
+                    pos: p.createVector(p.random(p.width), p.random(-100, -50)),
+                    vel: p.createVector(p.random(-2, 2), p.random(1, 3)),
+                    size: 40,
+                    mouthOpen: 0,
+                    mouthDirection: 1,
+                    timer: 0
+                };
+            }
+            
+            p.draw = () => {
+                // Draw water background
+                p.image(waterColor, 0, 0);
+                
+                // Update and draw bubbles
+                updateBubbles();
+                
+                // Update and draw corals
+                drawCorals();
+                
+                // Update and draw treasures
+                updateTreasures();
+                
+                // Update and draw food particles
+                updateFood();
+                
+                // Update and draw predators
+                updatePredators();
+                
+                // Update and draw fish
+                updateFish();
+                
+                // Update leader fish
+                updateLeaderFish();
+                
+                // Handle color burst effect
+                if (colorBurstActive) {
+                    colorBurstTimer--;
+                    if (colorBurstTimer <= 0) {
+                        colorBurstActive = false;
+                        // Reset fish colors
+                        fish.forEach(f => {
+                            f.color = f.originalColor;
+                        });
+                    }
+                }
+                
+                // Random bubble generation
+                if (p.random() < 0.03) {
+                    bubbles.push(createBubble(p.random(p.width), p.height + 10));
+                }
+            };
+            
+            function updateBubbles() {
+                for (let i = bubbles.length - 1; i >= 0; i--) {
+                    let b = bubbles[i];
+                    b.pos.add(b.vel);
+                    b.life--;
+                    
+                    p.noStroke();
+                    p.fill(200, 30, 100, b.opacity);
+                    p.ellipse(b.pos.x, b.pos.y, b.size);
+                    
+                    if (b.life <= 0 || b.pos.y < -b.size) {
+                        bubbles.splice(i, 1);
+                    }
+                }
+            }
+            
+            function drawCorals() {
+                corals.forEach(coral => {
+                    p.push();
+                    p.translate(coral.pos.x, coral.pos.y);
+                    
+                    // Draw coral base
+                    p.noStroke();
+                    p.fill(coral.color);
+                    p.ellipse(0, 0, coral.size, coral.size/2);
+                    
+                    // Draw branches
+                    for (let i = 0; i < coral.branches; i++) {
+                        let angle = p.map(i, 0, coral.branches, 0, p.PI);
+                        let branchLength = coral.size * p.random(0.5, 1.2);
+                        p.push();
+                        p.rotate(angle);
+                        p.ellipse(0, -branchLength/2, coral.size/4, branchLength);
+                        p.pop();
+                    }
+                    
+                    p.pop();
+                });
+            }
+            
+            function updateTreasures() {
+                treasures.forEach(treasure => {
+                    // Draw treasure chest
+                    p.push();
+                    p.translate(treasure.pos.x, treasure.pos.y);
+                    
+                    // Chest base
+                    p.fill(40, 80, 80);
+                    p.rect(-treasure.size/2, -treasure.size/3, treasure.size, treasure.size/1.5, 5);
+                    
+                    // Chest top
+                    if (!treasure.opened) {
+                        p.fill(30, 90, 70);
+                        p.arc(0, -treasure.size/3, treasure.size, treasure.size/2, p.PI, 0, p.CHORD);
+                        
+                        // Lock
+                        p.fill(50, 30, 90);
+                        p.rect(0, -treasure.size/3, 5, 8);
+                    } else {
+                        // Open lid
+                        p.fill(30, 90, 70);
+                        p.arc(0, -treasure.size/3 - 10, treasure.size, treasure.size/2, p.PI + 0.5, 0.5, p.CHORD);
+                        
+                        // Shining treasure
+                        treasure.timer++;
+                        if (treasure.timer < 60) {
+                            p.fill(60, 90, 100);
+                            p.ellipse(0, 0, treasure.size * 0.8 * (1 - treasure.timer/60));
+                            
+                            // Shine effect
+                            treasure.shineAngle += 0.1;
+                            p.stroke(60, 30, 100, 0.7);
+                            p.strokeWeight(2);
+                            for (let i = 0; i < 3; i++) {
+                                let angle = treasure.shineAngle + i * p.TWO_PI/3;
+                                p.line(0, 0, p.cos(angle) * treasure.size/2, p.sin(angle) * treasure.size/2);
+                            }
+                            p.noStroke();
+                        }
+                    }
+                    
+                    p.pop();
+                    
+                    // Check if leader fish opens the treasure
+                    if (!treasure.opened && p.dist(leaderFish.pos.x, leaderFish.pos.y, treasure.pos.x, treasure.pos.y) < treasure.size) {
+                        treasure.opened = true;
+                        // Spawn golden fish
+                        for (let i = 0; i < 3; i++) {
+                            let newFish = createFish(treasure.pos.x, treasure.pos.y);
+                            newFish.color = p.color(60, 90, 100);
+                            newFish.originalColor = p.color(60, 90, 100);
+                            newFish.exotic = true;
+                            fish.push(newFish);
+                        }
+                        // Spawn new treasure elsewhere
+                        treasures.push(createTreasure(p.random(p.width), p.random(p.height)));
+                        exoticFishUnlocked += 5;
+                    }
+                });
+            }
+            
+            function updateFood() {
+                for (let i = foodParticles.length - 1; i >= 0; i--) {
+                    let food = foodParticles[i];
+                    food.life--;
+                    
+                    // Draw food
+                    p.fill(60, 90, 100);
+                    p.ellipse(food.pos.x, food.pos.y, food.size);
+                    
+                    // Check if fish eat the food
+                    let eaten = false;
+                    fish.forEach(f => {
+                        if (p.dist(f.pos.x, f.pos.y, food.pos.x, food.pos.y) < f.size + food.size) {
+                            eaten = true;
+                            // Fish grows slightly
+                            f.size = p.min(f.size * 1.02, 25);
+                        }
+                    });
+                    
+                    if (eaten || food.life <= 0) {
+                        foodParticles.splice(i, 1);
+                    }
+                }
+            }
+            
+            function updatePredators() {
+                if (predatorActive) {
+                    if (predators.length === 0) {
+                        predators.push(createPredator());
+                    }
+                    
+                    predators.forEach(predator => {
+                        predator.timer++;
+                        predator.pos.add(predator.vel);
+                        
+                        // Animate mouth
+                        predator.mouthOpen += 0.05 * predator.mouthDirection;
+                        if (predator.mouthOpen > 1 || predator.mouthOpen < 0) {
+                            predator.mouthDirection *= -1;
+                        }
+                        
+                        // Draw predator (shark)
+                        p.push();
+                        p.translate(predator.pos.x, predator.pos.y);
+                        
+                        // Body
+                        p.fill(0, 0, 70);
+                        p.ellipse(0, 0, predator.size, predator.size/2);
+                        
+                        // Tail
+                        p.triangle(
+                            -predator.size/2, 0,
+                            -predator.size, -predator.size/4,
+                            -predator.size, predator.size/4
+                        );
+                        
+                        // Mouth
+                        p.fill(0, 80, 50);
+                        p.arc(predator.size/4, 0, 
+                            predator.size/2, predator.size/2 * (0.5 + predator.mouthOpen * 0.5), 
+                            -p.PI/4, p.PI/4, p.PIE);
+                        
+                        // Eye
+                        p.fill(0, 0, 100);
+                        p.ellipse(predator.size/3, -predator.size/8, predator.size/10);
+                        
+                        p.pop();
+                        
+                        // Scare fish
+                        fish.forEach(f => {
+                            let distToPredator = p.dist(f.pos.x, f.pos.y, predator.pos.x, predator.pos.y);
+                            if (distToPredator < 200) {
+                                f.fear = p.map(distToPredator, 0, 200, 1, 0, true);
+                            }
+                        });
+                    });
+                    
+                    // Remove predators that go off screen
+                    predators = predators.filter(p => p.pos.y < p.height + 100 && p.timer < 180);
+                    
+                    if (predators.length === 0) {
+                        predatorActive = false;
+                    }
+                }
+            }
+            
+            function updateFish() {
+                fish.forEach(f => {
+                    // Apply current force
+                    f.vel.add(currentForce);
+                    
+                    // Avoid edges
+                    let edgeAvoid = 0;
+                    if (f.pos.x < 50) edgeAvoid = 0.1;
+                    if (f.pos.x > p.width - 50) edgeAvoid = -0.1;
+                    if (f.pos.y < 50) edgeAvoid = 0.1;
+                    if (f.pos.y > p.height - 50) edgeAvoid = -0.1;
+                    f.vel.add(p.createVector(edgeAvoid, edgeAvoid));
+                    
+                    // Avoid corals
+                    corals.forEach(c => {
+                        let distToCoral = p.dist(f.pos.x, f.pos.y, c.pos.x, c.pos.y);
+                        if (distToCoral < c.size/2 + f.size) {
+                            let avoidDir = p5.Vector.sub(f.pos, c.pos).normalize().mult(0.2);
+                            f.vel.add(avoidDir);
+                        }
+                    });
+                    
+                    // Schooling behavior
+                    if (p.random() < 0.1) {
+                        // Tend toward leader fish or center
+                        let target = p.random() < 0.7 ? leaderFish.pos : p.createVector(p.width/2, p.height/2);
+                        let desired = p5.Vector.sub(target, f.pos);
+                        desired.normalize().mult(0.5);
+                        f.vel.add(desired);
+                        
+                        // Match velocity with nearby fish
+                        let avgVel = p.createVector(0, 0);
+                        let count = 0;
+                        fish.forEach(other => {
+                            if (other !== f && p.dist(f.pos.x, f.pos.y, other.pos.x, other.pos.y) < 100) {
+                                avgVel.add(other.vel);
+                                count++;
+                            }
+                        });
+                        if (count > 0) {
+                            avgVel.div(count).sub(f.vel).mult(0.05);
+                            f.vel.add(avgVel);
+                        }
+                    }
+                    
+                    // Flee from predator if scared
+                    if (f.fear > 0) {
+                        predators.forEach(pred => {
+                            let fleeDir = p5.Vector.sub(f.pos, pred.pos).normalize().mult(f.fear * 2);
+                            f.vel.add(fleeDir);
+                        });
+                        f.fear *= 0.95;
+                    }
+                    
+                    // Limit speed
+                    f.vel.limit(f.exotic ? 4 : 2);
+                    
+                    // Update position
+                    f.pos.add(f.vel);
+                    
+                    // Wiggle tail
+                    f.tailWiggle += f.wiggleSpeed;
+                    
+                    // Draw fish
+                    drawFish(f);
+                });
+            }
+            
+            function drawFish(f) {
+                p.push();
+                p.translate(f.pos.x, f.pos.y);
+                
+                // Rotate to face direction
+                p.rotate(f.vel.heading());
+                
+                // Body
+                p.noStroke();
+                p.fill(f.color);
+                p.ellipse(0, 0, f.size, f.size/2);
+                
+                // Tail
+                let tailWiggle = p.sin(f.tailWiggle) * f.size/4;
+                p.triangle(
+                    -f.size/2, 0,
+                    -f.size, tailWiggle,
+                    -f.size, -tailWiggle
+                );
+                
+                // Eye
+                p.fill(0, 0, 100);
+                p.ellipse(f.size/4, -f.size/8, f.size/6);
+                
+                // Exotic fish have special markings
+                if (f.exotic) {
+                    p.fill(f.color);
+                    p.stroke(f.originalColor);
+                    p.strokeWeight(1);
+                    for (let i = 0; i < 3; i++) {
+                        p.line(
+                            -f.size/3 + i * f.size/6, 
+                            -f.size/4, 
+                            -f.size/3 + i * f.size/6, 
+                            f.size/4
+                        );
+                    }
+                    p.noStroke();
+                }
+                
+                p.pop();
+            }
+            
+            function updateLeaderFish() {
+                // Move toward target
+                let desired = p5.Vector.sub(leaderFish.target, leaderFish.pos);
+                let d = desired.mag();
+                if (d > 5) {
+                    desired.normalize();
+                    desired.mult(p.min(d * 0.1, 5));
+                    leaderFish.vel.lerp(desired, 0.1);
+                } else {
+                    leaderFish.vel.mult(0.9);
+                }
+                
+                // Apply current force
+                leaderFish.vel.add(currentForce);
+                
+                // Limit speed
+                leaderFish.vel.limit(8);
+                
+                // Update position
+                leaderFish.pos.add(leaderFish.vel);
+                
+                // Wiggle tail
+                leaderFish.tailWiggle += 0.2;
+                
+                // Draw leader fish (larger and different color)
+                p.push();
+                p.translate(leaderFish.pos.x, leaderFish.pos.y);
+                p.rotate(leaderFish.vel.heading());
+                
+                // Body
+                p.noStroke();
+                p.fill(leaderFish.color);
+                p.ellipse(0, 0, leaderFish.size, leaderFish.size/2);
+                
+                // Tail
+                let tailWiggle = p.sin(leaderFish.tailWiggle) * leaderFish.size/3;
+                p.triangle(
+                    -leaderFish.size/2, 0,
+                    -leaderFish.size, tailWiggle,
+                    -leaderFish.size, -tailWiggle
+                );
+                
+                // Eye
+                p.fill(0, 0, 100);
+                p.ellipse(leaderFish.size/4, -leaderFish.size/8, leaderFish.size/5);
+                
+                // Crown to distinguish as leader
+                p.fill(60, 90, 100);
+                p.triangle(
+                    0, -leaderFish.size/2,
+                    -leaderFish.size/6, -leaderFish.size/3,
+                    leaderFish.size/6, -leaderFish.size/3
+                );
+                
+                p.pop();
+                
+                // Create bubbles behind leader
+                if (p.frameCount % 5 === 0 && leaderFish.vel.mag() > 0.5) {
+                    bubbles.push(createBubble(
+                        leaderFish.pos.x - leaderFish.vel.x * 10,
+                        leaderFish.pos.y - leaderFish.vel.y * 10,
+                        p.random(3, 8)
+                    ));
+                }
+            }
+            
+            p.mousePressed = () => {
+                // Set leader fish target
+                leaderFish.target.set(p.mouseX, p.mouseY);
+                
+                // Check if clicking on treasure
+                treasures.forEach(t => {
+                    if (!t.opened && p.dist(p.mouseX, p.mouseY, t.pos.x, t.pos.y) < t.size) {
+                        leaderFish.target.set(t.pos.x, t.pos.y);
+                    }
+                });
+            };
+            
+            p.keyPressed = () => {
+                // Left/right arrows create currents
+                if (p.keyCode === p.LEFT_ARROW) {
+                    currentForce.set(-1, 0);
+                } else if (p.keyCode === p.RIGHT_ARROW) {
+                    currentForce.set(1, 0);
+                }
+                
+                // Up arrow releases food
+                else if (p.keyCode === p.UP_ARROW) {
+                    for (let i = 0; i < 5; i++) {
+                        foodParticles.push(createFood(
+                            p.random(p.width/4, p.width*3/4),
+                            p.random(p.height/4, p.height*3/4)
+                        ));
+                    }
+                }
+                
+                // Down arrow triggers predator
+                else if (p.keyCode === p.DOWN_ARROW && !predatorActive) {
+                    predatorActive = true;
+                }
+                
+                // Space bar triggers color burst
+                else if (p.keyCode === 32 && !colorBurstActive) { // 32 is spacebar
+                    colorBurstActive = true;
+                    colorBurstTimer = 120;
+                    fish.forEach(f => {
+                        f.color = p.color(p.random(360), p.random(70, 100), p.random(70, 100));
+                    });
+                }
+            };
+            
+            p.keyReleased = () => {
+                if (p.keyCode === p.LEFT_ARROW || p.keyCode === p.RIGHT_ARROW) {
+                    currentForce.set(0, 0);
+                }
+            };
+            
+            p.windowResized = () => {
+                p.resizeCanvas(p.min(p.windowWidth, 1200), p.min(p.windowHeight, 800));
+                waterColor = p.createGraphics(p.width, p.height);
+                drawWaterGradient();
+            };
+        };
+
+        new p5(underwaterWorld);
+    </script>
+
+              
+          
+                
+          
+              
